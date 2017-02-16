@@ -43,7 +43,7 @@ class Particle(object):
             x: the x-coordinate of the hypothesis relative to the map frame
             y: the y-coordinate of the hypothesis relative ot the map frame
             theta: the yaw of the hypothesis relative to the map frame
-            w: the particle weight (the class does not ensure that particle weights are normalized """ 
+            w: the particle weight (the class does not ensure that particle weights are normalized """
         self.w = w
         self.theta = theta
         self.x = x
@@ -85,7 +85,7 @@ class ParticleFilter:
         self.base_frame = "base_link"   # the frame of the robot base
         self.map_frame = "map"          # the name of the map coordinate frame
         self.odom_frame = "odom"        # the name of the odometry coordinate frame
-        self.scan_topic = "scan"        # the topic where we will get laser scans from 
+        self.scan_topic = "scan"        # the topic where we will get laser scans from
 
         self.n_particles = 300          # the number of particles to use
 
@@ -102,7 +102,7 @@ class ParticleFilter:
         self.pose_listener = rospy.Subscriber("initialpose", PoseWithCovarianceStamped, self.update_initial_pose)
         # publish the current particle cloud.  This enables viewing particles in rviz.
         self.particle_pub = rospy.Publisher("particlecloud", PoseArray, queue_size=10)
-# laser_subscriber listens for data from the lidar
+        # laser_subscriber listens for data from the lidar
         self.laser_subscriber = rospy.Subscriber(self.scan_topic, LaserScan, self.scan_received)
 
         # enable listening for and broadcasting coordinate transforms
@@ -114,13 +114,13 @@ class ParticleFilter:
         self.current_odom_xy_theta = []
 
         # request the map from the map server, the map should be of type nav_msgs/OccupancyGrid
-	rospy.wait_for_service('static_map')
-	try:
-		map_server = rospy.ServiceProxy('static_map', GetMap)
-		map = map_server().map
-                print map.info.resolution
-	except:
-		print "Service call failed!"
+    	rospy.wait_for_service('static_map')
+    	try:
+            map_server = rospy.ServiceProxy('static_map', GetMap)
+            map = map_server().map
+            print map.info.resolution
+    	except:
+    		print "Service call failed!"
 
         # for now we have commented out the occupancy field initialization until you can successfully fetch the map
         self.occupancy_field = OccupancyField(map)
@@ -136,13 +136,14 @@ class ParticleFilter:
         # first make sure that the particle weights are normalized
         self.normalize_particles()
 
-	likeliest_particle = Particle(0, 0, 0, 0)
+    	mean_particle = Particle(0, 0, 0, 0)
+        for particle in self.particle_cloud:
+            mean_particle.x += particle.x * particle.w
+            mean_particle.y += particle.y * particle.w
+            mean_particle.theta += particle.theta * particle.w
 
-	for particle in self.particle_cloud:
-		if (particle.w > likeliest_particle.w):
-			likeliest_particle = particle
 
-        self.robot_pose = likeliest_particle.as_pose()
+        self.robot_pose = mean_particle.as_pose()
 
     def update_particles_with_odom(self, msg):
         """ Update the particles using the newly given odometry pose.
@@ -168,10 +169,14 @@ class ParticleFilter:
         # TODO: For added difficulty: Implement sample_motion_odometry (Prob Rob p 136)
 	# r1, r2, d?
 
-	for particle in self.particle_cloud:
-		particle.x = particle.x + delta[0]*(random_sample()*.4+.8)
-		particle.y = particle.y + delta[1]*(random_sample()*.4+.8)
-		particle.theta = particle.theta + delta[2]*(random_sample()*.4+.8)
+    	for particle in self.particle_cloud:
+            r1 = np.arctan(float(delta[1])/delta[0]) - old_odom_xy_theta[2]
+            d = np.sqrt(np.square(delta[0])+np.square(delta[1]))
+            r2 = delta[2] - r1
+            particle.theta = particle.theta + r1*(random_sample()*.4+.8)
+            particle.x = particle.x + d*np.cos(particle.theta)*(random_sample()*.4+.8)
+            particle.y = particle.y + d*np.sin(particle.theta)*(random_sample()*.4+.8)
+            particle.theta = particle.theta + r2*(random_sample()*.4+.8)
 
     def map_calc_range(self,x,y,theta):
         """ Difficulty Level 3: implement a ray tracing likelihood model... Let me know if you are interested """
@@ -235,20 +240,20 @@ class ParticleFilter:
             xy_theta = convert_pose_to_xy_and_theta(self.odom_pose.pose)
         self.particle_cloud = []
 
-	for x in range(500):
-		x = xy_theta[0] + (random_sample()*2-1) 
-		y = xy_theta[1] + (random_sample()*2-1) 
-		theta = xy_theta[2] + (random_sample()*math.pi-(math.pi/2))
-		self.particle_cloud.append(Particle(x, y, theta))
+    	for x in range(500):
+    		x = xy_theta[0] + (random_sample()*2-1)
+    		y = xy_theta[1] + (random_sample()*2-1)
+    		theta = xy_theta[2] + (random_sample()*math.pi-(math.pi/2))
+    		self.particle_cloud.append(Particle(x, y, theta))
 
         self.normalize_particles()
         self.update_robot_pose()
 
     def normalize_particles(self):
         """ Make sure the particle weights define a valid distribution (i.e. sum to 1.0) """
-	weights_sum = sum(particle.w for particle in self.particle_cloud)
-	for particle in self.particle_cloud:
-		particle.w /= weights_sum
+    	weights_sum = sum(particle.w for particle in self.particle_cloud)
+        for particle in self.particle_cloud:
+            particle.w /= weights_sum
 
     def publish_particles(self, msg):
         particles_conv = []
@@ -310,7 +315,7 @@ class ParticleFilter:
         self.publish_particles(msg)
 
     def fix_map_to_odom_transform(self, msg):
-        """ This method constantly updates the offset of the map and 
+        """ This method constantly updates the offset of the map and
             odometry coordinate systems based on the latest results from
             the localizer
             TODO: if you want to learn a lot about tf, reimplement this... I can provide
