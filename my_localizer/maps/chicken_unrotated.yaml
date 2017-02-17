@@ -1,6 +1,0 @@
-free_thresh: 0.196
-image: chicken_unrotated.pgm
-negate: 0
-occupied_thresh: 0.65
-origin: [-0.8059450410264422, -1.031559829429816, 0.0]
-resolution: 0.02
