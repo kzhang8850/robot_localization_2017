@@ -186,12 +186,22 @@ class ParticleFilter:
         """
         # make sure the distribution is normalized
         self.normalize_particles()
-        # TODO: fill out the rest of the implementation
+        choices = []
+        probabilities = []
+        num_samples = len(self.particle_cloud)
+        for particle in self.particle_cloud:
+            choices.append(particle)
+            probabilities.append(particle.w)
+        self.particle_cloud = self.draw_random_sample(choices, probabilities, num_samples)
 
     def update_particles_with_laser(self, msg):
         """ Updates the particle weights in response to the scan contained in the msg """
-        # TODO: implement this
-        pass
+        error = []
+        for particle in self.particle_cloud:
+            for theta in range(360):
+                error.append(self.occupancy_field.get_closest_obstacle_distance(particle.x + msg.ranges[theta] * numpy.cos(particle.theta + theta), particle.y + msg.ranges[theta] * numpy.sin(particle.theta + theta)))
+            particle.w = 1.0/sum(error)
+            error = []
 
     @staticmethod
     def weighted_values(values, probabilities, size):
