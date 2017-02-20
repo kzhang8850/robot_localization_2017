@@ -87,7 +87,7 @@ class ParticleFilter:
         self.odom_frame = "odom"        # the name of the odometry coordinate frame
         self.scan_topic = "scan"        # the topic where we will get laser scans from
 
-        self.n_particles = 300          # the number of particles to use
+        self.n_particles = 500          # the number of particles to use
 
         self.d_thresh = 0.2             # the amount of linear movement before performing an update
         self.a_thresh = math.pi/6       # the amount of angular movement before performing an update
@@ -166,17 +166,16 @@ class ParticleFilter:
             self.current_odom_xy_theta = new_odom_xy_theta
             return
 
-        # TODO: For added difficulty: Implement sample_motion_odometry (Prob Rob p 136)
-	# r1, r2, d?
+        odom_noise = .2
 
     	for particle in self.particle_cloud:
             r1 = np.arctan(float(delta[1])/delta[0]) - old_odom_xy_theta[2]
             d = np.sqrt(np.square(delta[0])+np.square(delta[1]))
             r2 = delta[2] - r1
-            particle.theta = particle.theta + r1*(random_sample()*.4+.8)
-            particle.x = particle.x + d*np.cos(particle.theta)*(random_sample()*.4+.8)
-            particle.y = particle.y + d*np.sin(particle.theta)*(random_sample()*.4+.8)
-            particle.theta = particle.theta + r2*(random_sample()*.4+.8)
+            particle.theta = particle.theta + r1*(random_sample()*odom_noise+(1-odom_noise/2.0))
+            particle.x = particle.x + d*np.cos(particle.theta)*(random_sample()*odom_noise+(1-odom_noise/2.0))
+            particle.y = particle.y + d*np.sin(particle.theta)*(random_sample()*odom_noise+(1-odom_noise/2.0))
+            particle.theta = particle.theta + r2*(random_sample()*odom_noise+(1-odom_noise/2.0))
 
     def map_calc_range(self,x,y,theta):
         """ Difficulty Level 3: implement a ray tracing likelihood model... Let me know if you are interested """
@@ -191,6 +190,9 @@ class ParticleFilter:
         """
         # make sure the distribution is normalized
         self.normalize_particles()
+        for particle in self.particle_cloud:
+            print particle.w
+        print "\n"
         choices = []
         probabilities = []
         num_samples = len(self.particle_cloud)
@@ -204,7 +206,14 @@ class ParticleFilter:
         error = []
         for particle in self.particle_cloud:
             for theta in range(360):
-                error.append(self.occupancy_field.get_closest_obstacle_distance(particle.x + msg.ranges[theta] * numpy.cos(particle.theta + theta), particle.y + msg.ranges[theta] * numpy.sin(particle.theta + theta)))
+                rad = np.radians(theta)
+                err = self.occupancy_field.get_closest_obstacle_distance(particle.x + msg.ranges[theta] * np.cos(particle.theta + rad), particle.y + msg.ranges[theta] * np.sin(particle.theta + rad))
+                if (math.isnan(err)):
+                    particle.w = 0
+                    break
+                error.append(err**3)
+            if (sum(error) == 0):
+                particle.w = 1.0
             particle.w = 1.0/sum(error)
             error = []
 
@@ -246,14 +255,17 @@ class ParticleFilter:
             Arguments
             xy_theta: a triple consisting of the mean x, y, and theta (yaw) to initialize the
                       particle cloud around.  If this input is ommitted, the odometry will be used """
+        lin_noise = 1
+        ang_noise = math.pi/2.0
+
         if xy_theta == None:
             xy_theta = convert_pose_to_xy_and_theta(self.odom_pose.pose)
         self.particle_cloud = []
 
-    	for x in range(500):
-    		x = xy_theta[0] + (random_sample()*2-1)
-    		y = xy_theta[1] + (random_sample()*2-1)
-    		theta = xy_theta[2] + (random_sample()*math.pi-(math.pi/2))
+    	for x in range(self.n_particles):
+    		x = xy_theta[0] + (random_sample()*lin_noise-(lin_noise/2.0))
+    		y = xy_theta[1] + (random_sample()*lin_noise-(lin_noise/2.0))
+    		theta = xy_theta[2] + (random_sample()*ang_noise-(ang_noise/2.0))
     		self.particle_cloud.append(Particle(x, y, theta))
 
         self.normalize_particles()
