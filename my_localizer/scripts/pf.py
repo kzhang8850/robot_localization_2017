@@ -89,8 +89,8 @@ class ParticleFilter:
 
         self.n_particles = 500          # the number of particles to use
 
-        self.d_thresh = 0.2             # the amount of linear movement before performing an update
-        self.a_thresh = math.pi/6       # the amount of angular movement before performing an update
+        self.d_thresh = 0.1             # the amount of linear movement before performing an update
+        self.a_thresh = math.pi/12       # the amount of angular movement before performing an update
 
         self.laser_max_distance = 2.0   # maximum penalty to assess in the likelihood field model
 
@@ -144,12 +144,18 @@ class ParticleFilter:
         # first make sure that the particle weights are normalized
         self.normalize_particles()
 
+
     	mean_particle = Particle(0, 0, 0, 0)
+        mean_particle_theta_x = 0
+        mean_particle_theta_y = 0
         for particle in self.particle_cloud:
             mean_particle.x += particle.x * particle.w
             mean_particle.y += particle.y * particle.w
-            mean_particle.theta += particle.theta * particle.w
+            distance_vector = np.sqrt(np.square(particle.y)+np.square(particle.x))
+            mean_particle_theta_x += distance_vector * np.cos(particle.theta) * particle.w
+            mean_particle_theta_y += distance_vector * np.sin(particle.theta) * particle.w
 
+        mean_particle.theta = np.arctan2(float(mean_particle_theta_y),float(mean_particle_theta_x))
 
         self.robot_pose = mean_particle.as_pose()
 
@@ -177,10 +183,10 @@ class ParticleFilter:
             self.current_odom_xy_theta = new_odom_xy_theta
             return
 
-        odom_noise = .2
+        odom_noise = .4
 
     	for particle in self.particle_cloud:
-            r1 = np.arctan(float(delta[1])/delta[0]) - old_odom_xy_theta[2]
+            r1 = np.arctan2(float(delta[1]),float(delta[0])) - old_odom_xy_theta[2]
             d = np.sqrt(np.square(delta[0])+np.square(delta[1]))
             r2 = delta[2] - r1
             particle.theta = particle.theta + r1*(random_sample()*odom_noise+(1-odom_noise/2.0))
@@ -214,9 +220,10 @@ class ParticleFilter:
 
     def update_particles_with_laser(self, msg):
         """ Updates the particle weights in response to the scan contained in the msg """
-        error = []
+
         for particle in self.particle_cloud:
-            for theta in range(360):
+            error = []
+            for theta in range(0,360,10):
                 rad = np.radians(theta)
                 err = self.occupancy_field.get_closest_obstacle_distance(particle.x + msg.ranges[theta] * np.cos(particle.theta + rad), particle.y + msg.ranges[theta] * np.sin(particle.theta + rad))
                 if (math.isnan(err)):
@@ -225,8 +232,9 @@ class ParticleFilter:
                 error.append(err**3)
             if (sum(error) == 0):
                 particle.w = 1.0
-            particle.w = 1.0/sum(error)
-            error = []
+            else:
+                particle.w = 1.0/sum(error)
+
 
     @staticmethod
     def draw_random_sample(choices, probabilities, n):
