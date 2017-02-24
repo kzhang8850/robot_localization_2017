@@ -132,7 +132,7 @@ class ParticleFilter:
 
         # for now we have commented out the occupancy field initialization until you can successfully fetch the map
         self.occupancy_field = OccupancyField(map)
-        print "initiailiazed"
+        print "initialized"
         self.initialized = True
 
     def update_robot_pose(self):
