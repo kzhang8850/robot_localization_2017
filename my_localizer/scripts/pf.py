@@ -183,7 +183,7 @@ class ParticleFilter:
             self.current_odom_xy_theta = new_odom_xy_theta
             return
 
-        odom_noise = .4
+        odom_noise = .3
 
     	for particle in self.particle_cloud:
             r1 = np.arctan2(float(delta[1]),float(delta[0])) - old_odom_xy_theta[2]
@@ -209,7 +209,6 @@ class ParticleFilter:
         self.normalize_particles()
         for particle in self.particle_cloud:
             print particle.w
-        print "\n"
         choices = []
         probabilities = []
         num_samples = len(self.particle_cloud)
@@ -229,7 +228,7 @@ class ParticleFilter:
                 if (math.isnan(err)):
                     particle.w = 0
                     break
-                error.append(err**3)
+                error.append(err**5)
             if (sum(error) == 0):
                 particle.w = 1.0
             else:
