@@ -1,6 +1,26 @@
 #!/usr/bin/env python
 
-""" This is the starter code for the robot localization project """
+"""
+ Computational Introduction to Robotics Localization Project
+ by Kevin Zhang and Shane Kelly
+ Spring 2017
+
+ This script is a completed version of the Particle Filter, meant to localize a robot Neato
+ and help it determine where it is in relation to a room or a space.
+
+ The code was scaffolded such that logistical and set up was given to us, and we wrote
+ the bulk of the codebase, which was the particle filter itself. Our work can be summarized in 4 steps:
+
+ 1 - Initialize particle cloud
+ 2 - Update Particles based on how Neato last moved
+ 3 - Re-weight particles based on accuracy with Neato's laser measurements
+ 4 - Resample particles to reflect the probability distribution made by re-weighting
+
+ Repeat until particles converge on Neato's location
+
+
+ The current status of the codebase is fully functional and accurate to .2 meters or 20 degrees.
+"""
 
 import rospy
 
@@ -29,6 +49,7 @@ from helper_functions import (convert_pose_inverse_transform,
                               convert_pose_to_xy_and_theta,
                               angle_diff)
 
+
 class Particle(object):
     """ Represents a hypothesis (particle) of the robot's pose consisting of x,y and theta (yaw)
         Attributes:
@@ -49,12 +70,12 @@ class Particle(object):
         self.x = x
         self.y = y
 
+
     def as_pose(self):
         """ A helper function to convert a particle to a geometry_msgs/Pose message """
         orientation_tuple = tf.transformations.quaternion_from_euler(0,0,self.theta)
         return Pose(position=Point(x=self.x,y=self.y,z=0), orientation=Quaternion(x=orientation_tuple[0], y=orientation_tuple[1], z=orientation_tuple[2], w=orientation_tuple[3]))
 
-    # TODO: define additional helper functions if needed
 
 class ParticleFilter:
     """ The class that represents a Particle Filter ROS Node
@@ -94,8 +115,6 @@ class ParticleFilter:
 
         self.laser_max_distance = 2.0   # maximum penalty to assess in the likelihood field model
 
-        # TODO: define additional constants if needed
-
         # Setup pubs and subs
 
         # pose_listener responds to selection of a new approximate robot location (for instance using rviz)
@@ -121,7 +140,7 @@ class ParticleFilter:
 
         self.current_odom_xy_theta = []
 
-        # request the map from the map server, the map should be of type nav_msgs/OccupancyGrid
+        # request the map from the map server
     	rospy.wait_for_service('static_map')
     	try:
             map_server = rospy.ServiceProxy('static_map', GetMap)
@@ -130,10 +149,11 @@ class ParticleFilter:
     	except:
     		print "Service call failed!"
 
-        # for now we have commented out the occupancy field initialization until you can successfully fetch the map
+        # initializes the occupancyfield which contains the map
         self.occupancy_field = OccupancyField(map)
         print "initialized"
         self.initialized = True
+
 
     def update_robot_pose(self):
         """ Update the estimate of the robot's pose given the updated particles.
@@ -144,13 +164,15 @@ class ParticleFilter:
         # first make sure that the particle weights are normalized
         self.normalize_particles()
 
-
+        # for the pose, calculate the particle's mean location
     	mean_particle = Particle(0, 0, 0, 0)
         mean_particle_theta_x = 0
         mean_particle_theta_y = 0
         for particle in self.particle_cloud:
             mean_particle.x += particle.x * particle.w
             mean_particle.y += particle.y * particle.w
+
+            # angle is calculated using trig to account for angle runover
             distance_vector = np.sqrt(np.square(particle.y)+np.square(particle.x))
             mean_particle_theta_x += distance_vector * np.cos(particle.theta) * particle.w
             mean_particle_theta_y += distance_vector * np.sin(particle.theta) * particle.w
@@ -159,8 +181,10 @@ class ParticleFilter:
 
         self.robot_pose = mean_particle.as_pose()
 
+
     def projected_scan_received(self, msg):
         self.last_projected_stable_scan = msg
+
 
     def update_particles_with_odom(self, msg):
         """ Update the particles using the newly given odometry pose.
@@ -183,21 +207,21 @@ class ParticleFilter:
             self.current_odom_xy_theta = new_odom_xy_theta
             return
 
-        odom_noise = .3
+        odom_noise = .3 # level of noise put into particles after update from odom to introduce variability
 
+        # updates the particles based on r1, d, and r2. For more information on this, consult the website
     	for particle in self.particle_cloud:
+            # calculates r1, d, and r2
             r1 = np.arctan2(float(delta[1]),float(delta[0])) - old_odom_xy_theta[2]
             d = np.sqrt(np.square(delta[0])+np.square(delta[1]))
             r2 = delta[2] - r1
+
+            # updates the particles with the above variables, while also adding in some noise
             particle.theta = particle.theta + r1*(random_sample()*odom_noise+(1-odom_noise/2.0))
             particle.x = particle.x + d*np.cos(particle.theta)*(random_sample()*odom_noise+(1-odom_noise/2.0))
             particle.y = particle.y + d*np.sin(particle.theta)*(random_sample()*odom_noise+(1-odom_noise/2.0))
             particle.theta = particle.theta + r2*(random_sample()*odom_noise+(1-odom_noise/2.0))
 
-    def map_calc_range(self,x,y,theta):
-        """ Difficulty Level 3: implement a ray tracing likelihood model... Let me know if you are interested """
-        # TODO: nothing unless you want to try this alternate likelihood model
-        pass
 
     def resample_particles(self):
         """ Resample the particles according to the new particle weights.
@@ -207,32 +231,35 @@ class ParticleFilter:
         """
         # make sure the distribution is normalized
         self.normalize_particles()
-        for particle in self.particle_cloud:
-            print particle.w
+
+        # creates choices and probabilities lists, which are the particles and their respective weights
         choices = []
         probabilities = []
         num_samples = len(self.particle_cloud)
         for particle in self.particle_cloud:
             choices.append(particle)
             probabilities.append(particle.w)
+
+        # re-makes the particle cloud according to a random sample based on the probability distribution of the weights
         self.particle_cloud = self.draw_random_sample(choices, probabilities, num_samples)
 
     def update_particles_with_laser(self, msg):
         """ Updates the particle weights in response to the scan contained in the msg """
 
+        # for each particle, find the total error based on 36 laser measurements taken from the Neato's actual position
         for particle in self.particle_cloud:
             error = []
             for theta in range(0,360,10):
                 rad = np.radians(theta)
                 err = self.occupancy_field.get_closest_obstacle_distance(particle.x + msg.ranges[theta] * np.cos(particle.theta + rad), particle.y + msg.ranges[theta] * np.sin(particle.theta + rad))
-                if (math.isnan(err)):
+                if (math.isnan(err)):   # if the get_closest_obstacle_distance method finds that a point is out of bounds, then the particle can't never be it
                     particle.w = 0
                     break
-                error.append(err**5)
-            if (sum(error) == 0):
+                error.append(err**5)     # each error is appended up to a power to make more likely particles have higher probability
+            if (sum(error) == 0):     # if the particle is basically a perfect match, then we make the particle almost always enter the next iteration through resampling
                 particle.w = 1.0
             else:
-                particle.w = 1.0/sum(error)
+                particle.w = 1.0/sum(error)   # the errors are inverted such that large errors become small and small errors become large
 
 
     @staticmethod
@@ -242,13 +269,14 @@ class ParticleFilter:
             probabilities: the probability of selecting each element in choices represented as a list
             n: the number of samples
         """
+        # sets up an index list for the chosen particles, and makes bins for the probabilities
         values = np.array(range(len(choices)))
         probs = np.array(probabilities)
         bins = np.add.accumulate(probs)
-        inds = values[np.digitize(random_sample(n), bins)]
+        inds = values[np.digitize(random_sample(n), bins)]  # chooses the new particles based on the probabilities of the old ones
         samples = []
         for i in inds:
-            samples.append(deepcopy(choices[int(i)]))
+            samples.append(deepcopy(choices[int(i)]))   # makes the new particle cloud based on the chosen particles
         return samples
 
     def update_initial_pose(self, msg):
@@ -263,29 +291,36 @@ class ParticleFilter:
             Arguments
             xy_theta: a triple consisting of the mean x, y, and theta (yaw) to initialize the
                       particle cloud around.  If this input is ommitted, the odometry will be used """
+
+        # levels of noise to introduce variability
         lin_noise = 1
         ang_noise = math.pi/2.0
 
+        #  if doesn't exist, use odom
         if xy_theta == None:
             xy_theta = convert_pose_to_xy_and_theta(self.odom_pose.pose)
-        self.particle_cloud = []
 
+        # make a new particle cloud, and then create a bunch of particles at the initial location with some added noise
+        self.particle_cloud = []
     	for x in range(self.n_particles):
     		x = xy_theta[0] + (random_sample()*lin_noise-(lin_noise/2.0))
     		y = xy_theta[1] + (random_sample()*lin_noise-(lin_noise/2.0))
     		theta = xy_theta[2] + (random_sample()*ang_noise-(ang_noise/2.0))
     		self.particle_cloud.append(Particle(x, y, theta))
 
+        # normalize particles because all weights were originall set to 1 on default
         self.normalize_particles()
         self.update_robot_pose()
 
     def normalize_particles(self):
         """ Make sure the particle weights define a valid distribution (i.e. sum to 1.0) """
+        # takes the sum, and then divides all weights by the sum
     	weights_sum = sum(particle.w for particle in self.particle_cloud)
         for particle in self.particle_cloud:
             particle.w /= weights_sum
 
     def publish_particles(self, msg):
+        """Publishes the particles out for visualization and other purposes"""
         particles_conv = []
         for p in self.particle_cloud:
             particles_conv.append(p.as_pose())
@@ -351,9 +386,7 @@ class ParticleFilter:
     def fix_map_to_odom_transform(self, msg):
         """ This method constantly updates the offset of the map and
             odometry coordinate systems based on the latest results from
-            the localizer
-            TODO: if you want to learn a lot about tf, reimplement this... I can provide
-                  you with some hints as to what is going on here. """
+            the localizer"""
         (translation, rotation) = convert_pose_inverse_transform(self.robot_pose)
         p = PoseStamped(pose=convert_translation_rotation_to_pose(translation,rotation),
                         header=Header(stamp=msg.header.stamp,frame_id=self.base_frame))
